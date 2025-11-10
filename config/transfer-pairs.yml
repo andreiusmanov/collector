@@ -1,0 +1,12 @@
+parserfile-fetcher:
+  check-interval-ms: 60000  # Common 1-minute interval for all pairs
+  max-files-per-batch: 250   # Maximum number of files to process per batch per pair
+  transfer-pairs:
+    - source: /mnt/cfd_share
+      target: /opt/acars/cfd/parser/data/input
+      archive: /mnt/cfd_share/archive
+      file-pattern: "*.txt"
+    - source: /mnt/oooi_share
+      target: /opt/acars/oooi/parser/data/input
+      archive: /mnt/oooi_share/archive
+      file-pattern: "*.txt"
