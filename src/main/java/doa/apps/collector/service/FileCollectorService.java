@@ -1,26 +1,26 @@
 package doa.apps.collector.service;
 
-import doa.apps.collector.config.FileTransferConfig;
+import doa.apps.collector.config.FileCollectorConfig;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.io.IOException;
 import java.nio.file.*;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 @Service
-public class FileTransferService {
+public class FileCollectorService {
 
-    private final FileTransferConfig config;
+    private final FileCollectorConfig config;
     private final ApplicationEventPublisher eventPublisher;
     private final AtomicBoolean enabled = new AtomicBoolean(true);
     private LocalDateTime lastRun;
@@ -29,32 +29,31 @@ public class FileTransferService {
 
     @PostConstruct
     public void init() {
-        log.info("Transfer pairs configured: {}, Max files per batch: {}",
-                config.getTransferPairs() != null ? config.getTransferPairs().size() : "null",
-                config.getMaxFilesPerBatch());
+        log.info("Collector pairs configured: {}",
+                config.getCollectors() != null ? config.getCollectors().size() : "null");
     }
 
-    public FileTransferService(FileTransferConfig config, ApplicationEventPublisher eventPublisher) {
+    public FileCollectorService(FileCollectorConfig config, ApplicationEventPublisher eventPublisher) {
         this.config = config;
         this.eventPublisher = eventPublisher;
     }
 
-    @Scheduled(fixedDelayString = "${file-fetcher.check-interval-ms}")
-    public void transferAllFiles() {
+    @Scheduled(fixedDelayString = "${parserfile-collector.check-interval-ms}")
+    public void collectAllFiles() {
         if (!enabled.get()) {
-            log.debug("File transfer service is disabled");
+            log.debug("File collector service is disabled");
             return;
         }
 
-        log.info("Starting file transfer cycle for {} pairs (max {} files per batch)",
-                config.getTransferPairs().size(), config.getMaxFilesPerBatch());
+        log.info("Starting file collection cycle for {} pairs",
+                config.getCollectors().size());
         lastRun = LocalDateTime.now();
 
         int cycleProcessed = 0;
         int cycleErrors = 0;
 
-        for (FileTransferConfig.TransferPair pair : config.getTransferPairs()) {
-            TransferResult result = transferFilesForPair(pair);
+        for (FileCollectorConfig.CollectorPair pair : config.getCollectors()) {
+            CollectionResult result = collectFilesForPair(pair);
             cycleProcessed += result.processedCount;
             cycleErrors += result.errorCount;
         }
@@ -62,7 +61,7 @@ public class FileTransferService {
         totalProcessed += cycleProcessed;
         totalErrors += cycleErrors;
 
-        log.info("File transfer cycle completed. Processed: {}, errors: {}", cycleProcessed, cycleErrors);
+        log.info("File collection cycle completed. Processed: {}, errors: {}", cycleProcessed, cycleErrors);
     }
 
     // REST Control Methods
@@ -73,13 +72,13 @@ public class FileTransferService {
         status.put("lastRun", lastRun);
         status.put("totalProcessed", totalProcessed);
         status.put("totalErrors", totalErrors);
-        status.put("transferPairsCount", config.getTransferPairs().size());
+        status.put("collectorPairsCount", config.getCollectors().size());
         status.put("checkIntervalMs", config.getCheckIntervalMs());
-        status.put("maxFilesPerBatch", config.getMaxFilesPerBatch());
+        status.put("maxDays", config.getMaxDays());
 
         // Check source directory accessibility
         Map<String, Boolean> sourceAccess = new HashMap<>();
-        for (FileTransferConfig.TransferPair pair : config.getTransferPairs()) {
+        for (FileCollectorConfig.CollectorPair pair : config.getCollectors()) {
             sourceAccess.put(pair.getSource(), Files.exists(Paths.get(pair.getSource())));
         }
         status.put("sourceAccessibility", sourceAccess);
@@ -89,17 +88,17 @@ public class FileTransferService {
 
     public void enableService() {
         enabled.set(true);
-        log.info("File transfer service enabled");
+        log.info("File collector service enabled");
     }
 
     public void disableService() {
         enabled.set(false);
-        log.info("File transfer service disabled");
+        log.info("File collector service disabled");
     }
 
-    public void triggerManualTransfer() {
-        log.info("Manual transfer triggered");
-        transferAllFiles();
+    public void triggerManualCollection() {
+        log.info("Manual collection triggered");
+        collectAllFiles();
     }
 
     public void resetStatistics() {
@@ -108,8 +107,8 @@ public class FileTransferService {
         log.info("Statistics reset");
     }
 
-    // Updated file transfer method with batch size limit
-    private TransferResult transferFilesForPair(FileTransferConfig.TransferPair pair) {
+    // File collection method without day age filter
+    private CollectionResult collectFilesForPair(FileCollectorConfig.CollectorPair pair) {
         int processedCount = 0;
         int errorCount = 0;
 
@@ -121,23 +120,31 @@ public class FileTransferService {
             Files.createDirectories(targetPath);
             Files.createDirectories(archivePath);
 
-            // Collect matching files first
+            // Collect matching files (no age limit)
             List<Path> matchingFiles = new ArrayList<>();
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(sourcePath, pair.getFilePattern())) {
+
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(sourcePath)) {
                 for (Path sourceFile : stream) {
-                    if (Files.isRegularFile(sourceFile) && !Files.isHidden(sourceFile)) {
+                    if (!Files.isRegularFile(sourceFile)) {
+                        continue;
+                    }
+
+                    if (Files.isHidden(sourceFile)) {
+                        continue;
+                    }
+
+                    String name = sourceFile.getFileName().toString();
+                    if (name.toLowerCase().endsWith(".txt")) {
                         matchingFiles.add(sourceFile);
                     }
                 }
             }
 
-            log.debug("Found {} matching files in {}, processing up to {}",
-                    matchingFiles.size(), pair.getSource(), config.getMaxFilesPerBatch());
+            log.debug("Found {} matching files in {}",
+                    matchingFiles.size(), pair.getSource());
 
-            // Process files up to the batch limit
-            int filesToProcess = Math.min(matchingFiles.size(), config.getMaxFilesPerBatch());
-            for (int i = 0; i < filesToProcess; i++) {
-                Path sourceFile = matchingFiles.get(i);
+            // Process all matching files
+            for (Path sourceFile : matchingFiles) {
                 try {
                     Path targetFile = targetPath.resolve(sourceFile.getFileName());
                     Path archiveFile = archivePath.resolve(sourceFile.getFileName());
@@ -146,7 +153,7 @@ public class FileTransferService {
                     Files.move(sourceFile, archiveFile, StandardCopyOption.REPLACE_EXISTING);
 
                     processedCount++;
-                    log.debug("Transferred: {} → {}", sourceFile.getFileName(), targetFile);
+                    log.debug("Collected: {} → {}", sourceFile.getFileName(), targetFile);
 
                 } catch (Exception e) {
                     log.error("Failed to process {}: {}", sourceFile.getFileName(), e.getMessage());
@@ -154,19 +161,14 @@ public class FileTransferService {
                 }
             }
 
-            if (matchingFiles.size() > config.getMaxFilesPerBatch()) {
-                log.info("Batch limit reached for {}. {} files remaining for next cycle",
-                        pair.getSource(), matchingFiles.size() - config.getMaxFilesPerBatch());
-            }
-
         } catch (IOException e) {
             log.error("Failed to access directories for pair {}: {}", pair.getSource(), e.getMessage());
             errorCount++;
         }
 
-        return new TransferResult(processedCount, errorCount);
+        return new CollectionResult(processedCount, errorCount);
     }
 
-    private record TransferResult(int processedCount, int errorCount) {
+    private record CollectionResult(int processedCount, int errorCount) {
     }
 }

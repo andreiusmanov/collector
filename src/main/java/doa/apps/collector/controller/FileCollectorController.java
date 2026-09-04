@@ -8,42 +8,42 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import doa.apps.collector.service.FileTransferService;
+import doa.apps.collector.service.FileCollectorService;
 import lombok.RequiredArgsConstructor;
 
 @RestController
-@RequestMapping("/api/transfer")
+@RequestMapping("/api/collector")
 @RequiredArgsConstructor
-public class FileTransferController {
+public class FileCollectorController {
 
-    private final FileTransferService fileTransferService;
+    private final FileCollectorService fileCollectorService;
 
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> getHealth() {
-        return ResponseEntity.ok(fileTransferService.getHealthStatus());
+        return ResponseEntity.ok(fileCollectorService.getHealthStatus());
     }
 
     @PostMapping("/enable")
     public ResponseEntity<String> enableService() {
-        fileTransferService.enableService();
-        return ResponseEntity.ok("File transfer service enabled");
+        fileCollectorService.enableService();
+        return ResponseEntity.ok("File collector service enabled");
     }
 
     @PostMapping("/disable") 
     public ResponseEntity<String> disableService() {
-        fileTransferService.disableService();
-        return ResponseEntity.ok("File transfer service disabled");
+        fileCollectorService.disableService();
+        return ResponseEntity.ok("File collector service disabled");
     }
 
     @PostMapping("/trigger")
-    public ResponseEntity<String> triggerTransfer() {
-        fileTransferService.triggerManualTransfer();
-        return ResponseEntity.ok("Manual transfer triggered");
+    public ResponseEntity<String> triggerCollector() {
+        fileCollectorService.triggerManualCollection();
+        return ResponseEntity.ok("Manual collector triggered");
     }
 
     @PostMapping("/reset-stats")
     public ResponseEntity<String> resetStatistics() {
-        fileTransferService.resetStatistics();
+        fileCollectorService.resetStatistics();
         return ResponseEntity.ok("Statistics reset");
     }
 }

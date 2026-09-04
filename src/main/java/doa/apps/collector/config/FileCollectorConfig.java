@@ -10,14 +10,14 @@ import lombok.Data;
 
 @Data
 @Component
-@ConfigurationProperties(prefix = "file-fetcher")
-public class FileTransferConfig {
+@ConfigurationProperties(prefix = "parserfile-collector")
+public class FileCollectorConfig {
     private long checkIntervalMs = 60000;
-    private int maxFilesPerBatch = 100; // Default value
-    private List<TransferPair> transferPairs = new ArrayList<>();
+    private int maxDays = 5; // Replaces maxFilesPerBatch for age filtering
+    private List<CollectorPair> collectors = new ArrayList<>();
 
     @Data
-    public static class TransferPair {
+    public static class CollectorPair {
         private String source;
         private String target;
         private String archive;
